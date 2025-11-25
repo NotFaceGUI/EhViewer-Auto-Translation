@@ -34,6 +34,13 @@
     <string name="favourite">收藏</string>
     <string name="history">歷史</string>
     <string name="downloads">下載</string>
+    <string name="added_to_translation_queue">已加入翻譯隊列</string>
+    <string name="already_in_translation_queue">已在翻譯隊列中</string>
+    <string name="translation_config">翻譯配置</string>
+    <string name="translation_config_test">測試連線</string>
+    <string name="translation_base_host">伺服器主機</string>
+    <string name="translation_base_port">伺服器埠號</string>
+    <string name="translation_queue">翻譯隊列</string>
     <string name="news">新聞</string>
     <string name="settings">設定</string>
     <string name="stub" translatable="false">Stub</string>
@@ -470,6 +477,9 @@
     <string name="gallery_menu_title">選單</string>
     <string name="share_image">分享圖片</string>
     <string name="image_saved">已將圖片儲存至 %s</string>
+    <string name="page_menu_translate_this_page">翻譯本頁</string>
+    <string name="page_menu_toggle_translation">切換翻譯/原文</string>
+    <string name="page_menu_force_translate_gallery">強制翻譯整本</string>
 
     <!-- Settings -->
     <string name="settings_eh">EH</string>
@@ -566,6 +576,7 @@
     <string name="settings_read_auto_transfer_time">自動切換時間（秒）</string>
     <string name="settings_read_custom_screen_lightness">自訂螢幕亮度</string>
     <string name="settings_read_screen_lightness">螢幕亮度</string>
+    <string name="settings_read_translated_version">閱讀翻譯版本</string>
 
     <string name="settings_download">下載</string>
     <string name="settings_download_download_location">下載路徑</string>

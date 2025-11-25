@@ -20,12 +20,18 @@ import android.content.Context;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import com.hippo.ehviewer.client.data.GalleryInfo;
+import com.hippo.ehviewer.Settings;
 import com.hippo.ehviewer.spider.SpiderQueen;
+import com.hippo.ehviewer.spider.SpiderDen;
 import com.hippo.lib.glgallery.GalleryProvider;
+import android.util.SparseBooleanArray;
+import java.util.HashMap;
 import com.hippo.lib.image.Image;
 import com.hippo.unifile.UniFile;
 import com.hippo.lib.yorozuya.SimpleHandler;
 import java.util.Locale;
+import java.io.InputStream;
+import java.io.FileInputStream;
 
 public class EhGalleryProvider extends GalleryProvider2 implements SpiderQueen.OnSpiderListener {
 
@@ -33,6 +39,8 @@ public class EhGalleryProvider extends GalleryProvider2 implements SpiderQueen.O
     private final GalleryInfo mGalleryInfo;
     @Nullable
     private SpiderQueen mSpiderQueen;
+    private final SparseBooleanArray mIsTranslated = new SparseBooleanArray();
+    private final HashMap<Integer, String> mLastPath = new HashMap<>();
 
     public EhGalleryProvider(Context context, GalleryInfo galleryInfo) {
         mContext = context;
@@ -45,6 +53,8 @@ public class EhGalleryProvider extends GalleryProvider2 implements SpiderQueen.O
 
         mSpiderQueen = SpiderQueen.obtainSpiderQueen(mContext, mGalleryInfo, SpiderQueen.MODE_READ);
         mSpiderQueen.addOnSpiderListener(this);
+        mIsTranslated.clear();
+        mLastPath.clear();
     }
 
     @Override
@@ -111,6 +121,11 @@ public class EhGalleryProvider extends GalleryProvider2 implements SpiderQueen.O
 
     @Override
     protected void onRequest(int index) {
+        if (Settings.getBoolean("read_translated_version", true)) {
+            if (tryLoadTranslated(index)) return;
+        } else {
+            if (tryLoadOriginal(index)) return;
+        }
         if (mSpiderQueen != null) {
             Object object = mSpiderQueen.request(index);
             if (object instanceof Float) {
@@ -125,6 +140,11 @@ public class EhGalleryProvider extends GalleryProvider2 implements SpiderQueen.O
 
     @Override
     protected void onForceRequest(int index) {
+        if (Settings.getBoolean("read_translated_version", true)) {
+            if (tryLoadTranslated(index)) return;
+        } else {
+            if (tryLoadOriginal(index)) return;
+        }
         if (mSpiderQueen != null) {
             Object object = mSpiderQueen.forceRequest(index);
             if (object instanceof Float) {
@@ -135,6 +155,119 @@ public class EhGalleryProvider extends GalleryProvider2 implements SpiderQueen.O
                 notifyPageWait(index);
             }
         }
+    }
+
+    public boolean forceLoadTranslated(int index) {
+        return tryLoadTranslated(index);
+    }
+
+    private boolean tryLoadTranslated(int index) {
+        InputStream is = null;
+        try {
+            UniFile dir = SpiderDen.getGalleryDownloadDir(mGalleryInfo);
+            if (dir == null || !dir.exists()) return false;
+            UniFile translated = dir.findFile("translated");
+            if (translated == null || !translated.exists()) return false;
+            String pageNumber = String.format(Locale.US, "%08d", index + 1);
+            UniFile[] files = translated.listFiles();
+            if (files == null) return false;
+            UniFile target = null;
+            for (UniFile f : files) {
+                String n = f.getName();
+                if (n != null && n.contains(pageNumber)) { target = f; break; }
+            }
+            if (target == null) return false;
+            String p = target.getUri() != null ? target.getUri().getPath() : null;
+            is = target.openInputStream();
+            Image image;
+            if (is instanceof FileInputStream) {
+                image = Image.decode((FileInputStream) is, false);
+            } else {
+                java.io.File tmp = java.io.File.createTempFile("translated_" + mGalleryInfo.gid + "_" + (index+1) + "_", ".img");
+                java.io.FileOutputStream fos = new java.io.FileOutputStream(tmp);
+                try {
+                    byte[] buf = new byte[8192];
+                    int r;
+                    while ((r = is.read(buf)) != -1) fos.write(buf, 0, r);
+                    fos.flush();
+                } finally {
+                    try { fos.close(); } catch (Exception ignored) {}
+                    try { if (is != null) is.close(); } catch (Exception ignored) {}
+                }
+                java.io.FileInputStream fis = new java.io.FileInputStream(tmp);
+                try {
+                    image = Image.decode(fis, false);
+                } finally {
+                    try { fis.close(); } catch (Exception ignored) {}
+                    try { tmp.delete(); } catch (Exception ignored) {}
+                }
+            }
+            if (image != null) {
+                mIsTranslated.put(index, true);
+                if (p != null) mLastPath.put(index, p);
+                notifyPageSucceed(index, image);
+                return true;
+            }
+        } catch (Throwable ignored) {
+        } finally {
+            try { if (is != null) is.close(); } catch (Exception ignored) {}
+        }
+        return false;
+    }
+
+    private boolean tryLoadOriginal(int index) {
+        InputStream is = null;
+        try {
+            UniFile dir = SpiderDen.getGalleryDownloadDir(mGalleryInfo);
+            if (dir == null || !dir.exists()) return false;
+            String pageNumber = String.format(Locale.US, "%08d", index + 1);
+            UniFile[] files = dir.listFiles();
+            if (files == null) return false;
+            UniFile target = null;
+            for (UniFile f : files) {
+                String n = f.getName();
+                if (n == null) continue;
+                if ("translated".equals(n)) continue;
+                if (f.isDirectory()) continue;
+                if (n.contains(pageNumber)) { target = f; break; }
+            }
+            if (target == null) return false;
+            String p = target.getUri() != null ? target.getUri().getPath() : null;
+            is = target.openInputStream();
+            Image image;
+            if (is instanceof FileInputStream) {
+                image = Image.decode((FileInputStream) is, false);
+            } else {
+                java.io.File tmp = java.io.File.createTempFile("original_" + mGalleryInfo.gid + "_" + (index+1) + "_", ".img");
+                java.io.FileOutputStream fos = new java.io.FileOutputStream(tmp);
+                try {
+                    byte[] buf = new byte[8192];
+                    int r;
+                    while ((r = is.read(buf)) != -1) fos.write(buf, 0, r);
+                    fos.flush();
+                } finally {
+                    try { fos.close(); } catch (Exception ignored) {}
+                    try { if (is != null) is.close(); } catch (Exception ignored) {}
+                }
+                java.io.FileInputStream fis = new java.io.FileInputStream(tmp);
+                try {
+                    image = Image.decode(fis, false);
+                } finally {
+                    try { fis.close(); } catch (Exception ignored) {}
+                    try { tmp.delete(); } catch (Exception ignored) {}
+                }
+            }
+            if (image != null) {
+                mIsTranslated.put(index, false);
+                if (p != null) mLastPath.put(index, p);
+                notifyPageSucceed(index, image);
+                return true;
+            }
+        } catch (Throwable ignored) {
+        } finally {
+            try { if (is != null) is.close(); } catch (Exception ignored) {}
+        }
+        return false;
     }
 
     @Override
@@ -186,12 +319,22 @@ public class EhGalleryProvider extends GalleryProvider2 implements SpiderQueen.O
 
     @Override
     public void onGetImageSuccess(int index, Image image) {
+        mIsTranslated.put(index, false);
+        mLastPath.remove(index);
         notifyPageSucceed(index, image);
     }
 
     @Override
     public void onGetImageFailure(int index, String error) {
         notifyPageFailed(index, error);
+    }
+
+    public boolean isTranslatedDisplayed(int index) {
+        return mIsTranslated.get(index, false);
+    }
+
+    public String getLastLoadedPath(int index) {
+        return mLastPath.get(index);
     }
 
     private static class ReleaseTask implements Runnable {

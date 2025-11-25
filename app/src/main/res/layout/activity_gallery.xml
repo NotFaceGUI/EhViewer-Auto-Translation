@@ -84,6 +84,17 @@
             android:layout_gravity="end"
             android:src="@drawable/ic_start_play_24" />
 
+        <ImageView
+            android:id="@+id/translate_toggle"
+            android:layout_width="45dp"
+            android:layout_height="45dp"
+            android:layout_marginEnd="16dp"
+            android:layout_marginBottom="12dp"
+            android:importantForAccessibility="no"
+            android:visibility="invisible"
+            android:layout_gravity="end"
+            android:src="@drawable/v_translate_x24" />
+
         <com.hippo.ehviewer.widget.SeekBarPanel
             android:id="@+id/seek_bar_panel"
             android:layout_width="match_parent"

@@ -62,6 +62,7 @@ import com.hippo.unifile.UniRandomAccessFile;
 import com.hippo.util.NaturalComparator;
 import com.hippo.ehviewer.Analytics;
 import com.hippo.widget.LoadImageView;
+import com.hippo.lib.yorozuya.FileUtils;
 
 // 拖拽排序相关导入
 import com.h6ah4i.android.widget.advrecyclerview.draggable.DraggableItemAdapter;
@@ -338,7 +339,7 @@ public class DownloadAdapter extends RecyclerView.Adapter<DownloadAdapter.Downlo
         if (speed < 0) {
             speed = 0;
         }
-        holder.speed.setText(com.hippo.lib.yorozuya.FileUtils.humanReadableByteCount(speed, false) + "/S");
+        holder.speed.setText(FileUtils.humanReadableByteCount(speed, false) + "/S");
     }
 
 
@@ -402,7 +403,7 @@ public class DownloadAdapter extends RecyclerView.Adapter<DownloadAdapter.Downlo
             }
         } catch (Exception e) {
             // 忽略硬件位图相关错误
-            android.util.Log.e("DownloadAdapter", "Error in onItemDragStarted: " + e.getMessage());
+            Log.e("DownloadAdapter", "Error in onItemDragStarted: " + e.getMessage());
         }
     }
 
@@ -435,7 +436,7 @@ public class DownloadAdapter extends RecyclerView.Adapter<DownloadAdapter.Downlo
             }
         } catch (Exception e) {
             // 忽略硬件位图相关错误
-            android.util.Log.e("DownloadAdapter", "Error in onItemDragFinished: " + e.getMessage());
+            Log.e("DownloadAdapter", "Error in onItemDragFinished: " + e.getMessage());
         }
     }
 

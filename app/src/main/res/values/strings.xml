@@ -73,6 +73,15 @@
     <string name="favourite">Favourite</string>
     <string name="history">History</string>
     <string name="downloads">Downloads</string>
+    <string name="added_to_translation_queue">Added to translation queue</string>
+    <string name="already_in_translation_queue">Already in translation queue</string>
+    <string name="translation_config">Translation Config</string>
+    <string name="translation_config_test">Test Connection</string>
+    <string name="translation_base_host">Server Host</string>
+    <string name="translation_base_port">Server Port</string>
+    <string name="translation_queue">Translation Queue</string>
+    <string name="translation_delete_all_records">删除所有记录</string>
+    <string name="translation_delete_all_records_confirm">确认删除所有记录？</string>
     <string name="news">News</string>
     <string name="settings">Settings</string>
     <string name="stub" translatable="false">Stub</string>
@@ -538,6 +547,10 @@
     <string name="gallery_menu_title">Menu</string>
     <string name="share_image">Share image</string>
     <string name="image_saved">Image saved to %s</string>
+    <string name="page_menu_translate_this_page">Translate this page</string>
+    <string name="page_menu_toggle_translation">Toggle translated/original</string>
+    <string name="page_menu_force_translate_gallery">Force translate gallery</string>
+    <string name="page_menu_llm_translate_this_page">Translate this page via LLM</string>
 
     <string name="settings_eh">EH</string>
     <string name="settings_eh_sign_out">Sign out</string>
@@ -632,6 +645,7 @@
     <string name="settings_read_reading_fullscreen">Fullscreen</string>
     <string name="settings_read_custom_screen_lightness">Custom screen lightness</string>
     <string name="settings_read_screen_lightness">Screen lightness</string>
+    <string name="settings_read_translated_version">Read translated version</string>
 
     <string name="settings_download">Download</string>
     <string name="settings_download_download_location">Download location</string>
@@ -1025,4 +1039,11 @@
     <string name="imported_archive_info_message">This is an item imported from local storage</string>
     <string name="imported_archive_category">Local Import</string>
 
+    <string name="gemini_base_url">API Base URL</string>
+    <string name="gemini_model_select">Model</string>
+    <string name="gemini_model_custom">Custom Model</string>
+    <string name="gemini_model_default">gemini-3-pro-image-preview</string>
+    <string name="gemini_common_prompt">Prompt</string>
+    <string name="gemini_api_key">API Key</string>
+    <string name="settings_translation">Translation Settings</string>
 </resources>

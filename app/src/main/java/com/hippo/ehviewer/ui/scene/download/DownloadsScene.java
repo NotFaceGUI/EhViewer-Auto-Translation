@@ -86,6 +86,7 @@ import com.hippo.ehviewer.event.SomethingNeedRefresh;
 import com.hippo.ehviewer.spider.SpiderInfo;
 import com.hippo.ehviewer.sync.DownloadListInfosExecutor;
 import com.hippo.ehviewer.sync.DownloadSpiderInfoExecutor;
+import com.hippo.ehviewer.translation.TranslationQueueManager;
 import com.hippo.ehviewer.ui.GalleryActivity;
 import com.hippo.ehviewer.ui.MainActivity;
 import com.hippo.ehviewer.ui.annotation.ViewLifeCircle;
@@ -128,8 +129,8 @@ import java.util.Map;
 
 public class DownloadsScene extends ToolbarScene
         implements DownloadManager.DownloadInfoListener, DownloadSearchCallback,
-        MyEasyRecyclerView.OnItemClickListener,
-        MyEasyRecyclerView.OnItemLongClickListener,
+        EasyRecyclerView.OnItemClickListener,
+        EasyRecyclerView.OnItemLongClickListener,
         FabLayout.OnClickFabListener, FabLayout.OnExpandListener, FastScroller.OnDragHandlerListener, SearchBar.Helper, SearchBarMover.Helper, SearchBar.OnStateChangeListener, DownloadAdapter.DownloadAdapterCallback {
 
     private static final String TAG = DownloadsScene.class.getSimpleName();
@@ -429,7 +430,7 @@ public class DownloadsScene extends ToolbarScene
                     (NinePatchDrawable) context.getResources().getDrawable(R.drawable.shadow_8dp));
         } catch (Exception e) {
             // 忽略硬件位图相关错误
-            android.util.Log.w("DownloadsScene", "Error setting drag shadow: " + e.getMessage());
+            Log.w("DownloadsScene", "Error setting drag shadow: " + e.getMessage());
         }
 
 
@@ -468,7 +469,7 @@ public class DownloadsScene extends ToolbarScene
             mRecyclerView.setDrawingCacheQuality(View.DRAWING_CACHE_QUALITY_HIGH);
         } catch (Exception e) {
             // 忽略硬件位图相关错误
-            android.util.Log.w("DownloadsScene", "Error setting drawing cache: " + e.getMessage());
+            Log.w("DownloadsScene", "Error setting drawing cache: " + e.getMessage());
         }
         mRecyclerView.setLayoutManager(mLayoutManager);
         mRecyclerView.setSelector(Ripple.generateRippleDrawable(context, !AttrResources.getAttrBoolean(context, androidx.appcompat.R.attr.isLightTheme), new ColorDrawable(Color.TRANSPARENT)));
@@ -497,7 +498,7 @@ public class DownloadsScene extends ToolbarScene
                 mDragDropManager.attachRecyclerView(mRecyclerView);
             } catch (Exception e) {
                 // 忽略硬件位图相关错误
-                android.util.Log.w("DownloadsScene", "Error attaching drag manager: " + e.getMessage());
+                Log.w("DownloadsScene", "Error attaching drag manager: " + e.getMessage());
             }
         }
         
@@ -961,7 +962,7 @@ public class DownloadsScene extends ToolbarScene
             LongList gidList = null;
             List<DownloadInfo> downloadInfoList = null;
             boolean collectGid = position == 1 || position == 2 || position == 3; // Start, Stop, Delete
-            boolean collectDownloadInfo = position == 3 || position == 4; // Delete or Move
+            boolean collectDownloadInfo = position == 3 || position == 4 || position == 5; // Delete, Move or Enqueue Translation
             if (collectGid) {
                 gidList = new LongList();
             }
@@ -1041,14 +1042,34 @@ public class DownloadsScene extends ToolbarScene
                             .show();
                     break;
                 }
-                case 5:
+                case 5: { // Enqueue to Translation Queue
+                    if (downloadInfoList == null || downloadInfoList.isEmpty()) {
+                        break;
+                    }
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("enqueue translation, count=").append(downloadInfoList.size());
+                    for (DownloadInfo di : downloadInfoList) {
+                        sb.append("; gid=").append(di.gid).append(", title=").append(di.title);
+                    }
+                    Log.d(TAG, sb.toString());
+                    boolean anyAdded = false;
+                    for (DownloadInfo di : downloadInfoList) {
+                        if (TranslationQueueManager.getInstance().enqueue(di)) {
+                            anyAdded = true;
+                        }
+                    }
+                    Toast.makeText(context, anyAdded ? R.string.added_to_translation_queue : R.string.already_in_translation_queue, Toast.LENGTH_SHORT).show();
+                    recyclerView.outOfCustomChoiceMode();
+                    break;
+                }
+                case 6:
                     if (mList == null || mList.isEmpty()) {
                         return;
                     }
                     onClickPrimaryFab(mFabLayout,null);
                     viewRandom();
                     break;
-                case 6:
+                case 7:
                     setDragEnable(fab);
                     break;
             }
@@ -1832,7 +1853,7 @@ public class DownloadsScene extends ToolbarScene
 //        }
 //    }
 
-    private class DownloadChoiceListener implements MyEasyRecyclerView.CustomChoiceListener {
+    private class DownloadChoiceListener implements EasyRecyclerView.CustomChoiceListener {
 
         @Override
         public void onIntoCustomChoice(EasyRecyclerView view) {

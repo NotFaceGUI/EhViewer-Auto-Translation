@@ -24,6 +24,7 @@ import kotlin.math.max
 import kotlin.math.min
 import androidx.core.graphics.createBitmap
 import com.hippo.ehviewer.Analytics
+import java.io.InputStream
 
 
 class Image private constructor(

@@ -112,4 +112,9 @@
         android:title="@string/settings_read_screen_lightness"
         app:max="200" />
 
+    <com.hippo.preference.SwitchPreference
+        android:defaultValue="true"
+        android:key="read_translated_version"
+        android:title="@string/settings_read_translated_version" />
+
 </PreferenceScreen>

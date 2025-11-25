@@ -95,6 +95,7 @@ import okhttp3.Cache;
 import okhttp3.ConnectionSpec;
 import okhttp3.OkHttpClient;
 import okhttp3.Response;
+import com.hippo.ehviewer.translation.TranslationQueueManager;
 
 public class EhApplication extends RecordingApplication {
 
@@ -191,7 +192,11 @@ public class EhApplication extends RecordingApplication {
         }
 
         if (Settings.getEnableAnalytics()) {
-            Analytics.start(this);
+            if (hasGoogleAppId(this)) {
+                Analytics.start(this);
+            } else {
+                Settings.putEnableAnalytics(false);
+            }
         }
 
         // Do io tasks in new thread
@@ -239,6 +244,21 @@ public class EhApplication extends RecordingApplication {
         }
 
         initialized = true;
+
+        try {
+            TranslationQueueManager.getInstance().startPolling();
+        } catch (Throwable ignored) {}
+    }
+
+    private static boolean hasGoogleAppId(Context context) {
+        try {
+            int id = context.getResources().getIdentifier("google_app_id", "string", context.getPackageName());
+            if (id == 0) return false;
+            String v = context.getResources().getString(id);
+            return v != null && !v.trim().isEmpty();
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     private void clearTempDir() {

@@ -30,6 +30,20 @@
     <string name="favourite">收藏</string>
     <string name="history">历史</string>
     <string name="downloads">下载</string>
+    <string name="added_to_translation_queue">已加入翻译队列</string>
+    <string name="already_in_translation_queue">已在翻译队列中</string>
+    <string name="translation_config">翻译配置</string>
+    <string name="translation_config_test">测试连接</string>
+    <string name="translation_base_host">服务器主机</string>
+    <string name="translation_base_port">服务器端口</string>
+    <string name="gemini_base_url">基础 URL</string>
+    <string name="gemini_model_select">模型</string>
+    <string name="gemini_model_custom">自定义模型</string>
+    <string name="gemini_model_default">gemini-3-pro-image-preview</string>
+    <string name="gemini_common_prompt">提示词</string>
+    <string name="gemini_api_key">API 密钥</string>
+    <string name="settings_translation">翻译设置</string>
+    <string name="translation_queue">翻译队列</string>
     <string name="news">新闻</string>
     <string name="settings">设置</string>
 
@@ -462,6 +476,10 @@
     <string name="gallery_menu_title">菜单</string>
     <string name="share_image">分享图片</string>
     <string name="image_saved">图片已保存至 %s</string>
+    <string name="page_menu_translate_this_page">翻译本页</string>
+    <string name="page_menu_toggle_translation">切换翻译/原文</string>
+    <string name="page_menu_force_translate_gallery">强制翻译整本</string>
+    <string name="page_menu_llm_translate_this_page">用大模型翻译本页</string>
 
     <!-- Settings -->
     <string name="settings_eh">EH</string>
@@ -559,6 +577,7 @@
     <string name="settings_read_reading_fullscreen">全屏</string>
     <string name="settings_read_custom_screen_lightness">自定义屏幕亮度</string>
     <string name="settings_read_screen_lightness">屏幕亮度</string>
+    <string name="settings_read_translated_version">阅读翻译版本</string>
 
     <string name="settings_download">下载</string>
     <string name="settings_download_download_location">下载路径</string>

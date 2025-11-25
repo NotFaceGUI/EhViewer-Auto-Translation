@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_margin="2dp"
+    style="@style/CardView.Reactive">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <RelativeLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <com.hippo.ehviewer.widget.FixedThumb
+                android:id="@+id/thumb"
+                android:layout_width="@dimen/gallery_list_thumb_width"
+                android:layout_height="@dimen/gallery_list_thumb_height"
+                app:retryType="longClick"
+                app:minAspect="0.333"
+                app:maxAspect="1.333"/>
+
+            <TextView
+                android:id="@+id/title"
+                style="@style/CardTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignParentTop="true"
+                android:layout_marginLeft="8dp"
+                android:layout_marginRight="8dp"
+                android:layout_marginTop="4dp"
+                android:layout_toRightOf="@id/thumb"/>
+
+            <TextView
+                android:id="@+id/state"
+                style="@style/CardMessage"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_below="@id/title"
+                android:layout_marginTop="2dp"
+                android:layout_alignLeft="@id/title"/>
+
+            <TextView
+                android:id="@+id/percent"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignParentRight="true"
+                android:layout_marginRight="16dp"
+                android:layout_alignBaseline="@id/state"/>
+
+            <ProgressBar
+                android:id="@+id/progress_bar"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_alignLeft="@id/title"
+                android:layout_marginRight="8dp"
+                android:layout_below="@id/state"
+                android:indeterminate="false"/>
+
+            <FrameLayout
+                android:id="@+id/actions"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignBottom="@+id/thumb"
+                android:layout_alignParentRight="true"
+                android:paddingRight="8dp">
+
+                <ImageView
+                    android:id="@+id/cancel"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:padding="8dp"
+                    android:layout_marginLeft="48dp"
+                    app:srcCompat="@drawable/v_delete_x24"/>
+            </FrameLayout>
+
+        </RelativeLayout>
+
+    </LinearLayout>
+
+</androidx.cardview.widget.CardView>

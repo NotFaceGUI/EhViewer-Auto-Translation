@@ -131,4 +131,6 @@
         android:title="@string/settings_advanced_wifi_client"
         app:allowDividerAbove="true" />
 
+    
+
 </PreferenceScreen>

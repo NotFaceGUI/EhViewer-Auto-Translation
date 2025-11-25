@@ -54,6 +54,15 @@ import android.widget.SeekBar;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.Button;
+import android.view.ViewGroup;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Rect;
+import android.graphics.RectF;
 
 import androidx.activity.result.ActivityResult;
 import androidx.annotation.NonNull;
@@ -83,6 +92,13 @@ import com.hippo.lib.glgallery.GalleryView;
 import com.hippo.lib.glgallery.SimpleAdapter;
 import com.hippo.lib.glview.view.GLRootView;
 import com.hippo.unifile.UniFile;
+import com.hippo.ehviewer.EhApplication;
+import com.hippo.ehviewer.download.DownloadManager;
+import com.hippo.ehviewer.dao.DownloadInfo;
+import com.hippo.ehviewer.translation.TranslationQueueManager;
+import com.hippo.ehviewer.translation.GeminiApi;
+import com.hippo.ehviewer.spider.SpiderDen;
+import com.hippo.app.EditTextDialogBuilder;
 import com.hippo.util.ExceptionUtils;
 import com.hippo.util.SystemUiHelper;
 import com.hippo.widget.ColorView;
@@ -104,6 +120,8 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.FileOutputStream;
+import java.util.Locale;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -159,6 +177,8 @@ public class GalleryActivity extends EhActivity implements SeekBar.OnSeekBarChan
     @Nullable
     private ImageView mAutoTransferPanel;
     @Nullable
+    private ImageView mTranslateToggle;
+    @Nullable
     private TextView mLeftText;
     @Nullable
     private TextView mRightText;
@@ -167,6 +187,9 @@ public class GalleryActivity extends EhActivity implements SeekBar.OnSeekBarChan
 
     private ObjectAnimator mSeekBarPanelAnimator;
     private ObjectAnimator mAutoTransferAnimator;
+    private ObjectAnimator mTranslateAnimator;
+
+    private java.util.HashMap<Integer, java.util.ArrayList<RectF>> mLlmMaskRegions = new java.util.HashMap<>();
 
     private int mLayoutMode;
     private int mSize;
@@ -220,6 +243,7 @@ public class GalleryActivity extends EhActivity implements SeekBar.OnSeekBarChan
             if (mSeekBarPanel != null) {
                 hideSlider(mSeekBarPanel, mSeekBarPanelAnimator);
                 hideSlider(mAutoTransferPanel, mAutoTransferAnimator);
+                if (mTranslateToggle != null) mTranslateToggle.setVisibility(View.INVISIBLE);
             }
         }
     };
@@ -387,11 +411,37 @@ public class GalleryActivity extends EhActivity implements SeekBar.OnSeekBarChan
 
         mSeekBarPanel = ViewUtils.$$(this, R.id.seek_bar_panel);
         mAutoTransferPanel = (ImageView) ViewUtils.$$(this, R.id.auto_transfer);
+        mTranslateToggle = (ImageView) ViewUtils.$$(this, R.id.translate_toggle);
         mLeftText = (TextView) ViewUtils.$$(mSeekBarPanel, R.id.left);
         mRightText = (TextView) ViewUtils.$$(mSeekBarPanel, R.id.right);
         mSeekBar = (ReversibleSeekBar) ViewUtils.$$(mSeekBarPanel, R.id.seek_bar);
         mSeekBar.setOnSeekBarChangeListener(this);
         mAutoTransferPanel.setOnClickListener(this::autoRead);
+        if (mTranslateToggle != null) {
+            mTranslateToggle.setOnClickListener(v -> {
+                boolean cur = Settings.getBoolean("read_translated_version", false);
+                boolean next = !cur;
+                if (mGalleryProvider != null && mCurrentIndex >= 0) {
+                    if (mGalleryProvider instanceof EhGalleryProvider) {
+                        EhGalleryProvider p = (EhGalleryProvider) mGalleryProvider;
+                        boolean displayedTranslated = p.isTranslatedDisplayed(mCurrentIndex);
+                        if ((next && displayedTranslated) || (!next && !displayedTranslated)) return;
+                    }
+                    Settings.putBoolean("read_translated_version", next);
+                    mGalleryProvider.removeCache(mCurrentIndex);
+                    if (!next) {
+                        mGalleryProvider.request(mCurrentIndex);
+                    } else {
+                        if (mGalleryProvider instanceof EhGalleryProvider) {
+                            boolean ok = ((EhGalleryProvider) mGalleryProvider).forceLoadTranslated(mCurrentIndex);
+                            if (!ok) mGalleryProvider.forceRequest(mCurrentIndex);
+                        } else {
+                            mGalleryProvider.forceRequest(mCurrentIndex);
+                        }
+                    }
+                }
+            });
+        }
 
         mSize = mGalleryProvider.size();
         mCurrentIndex = startPage;
@@ -705,6 +755,30 @@ public class GalleryActivity extends EhActivity implements SeekBar.OnSeekBarChan
         end.setText(Integer.toString(mSize));
         mSeekBar.setMax(mSize - 1);
         mSeekBar.setProgress(mCurrentIndex);
+        if (mTranslateToggle != null) {
+            boolean translatedAvail = false;
+            try {
+                if (mGalleryInfo != null && mCurrentIndex >= 0) {
+                    com.hippo.unifile.UniFile dir = com.hippo.ehviewer.spider.SpiderDen.getGalleryDownloadDir(mGalleryInfo);
+                    if (dir != null && dir.exists()) {
+                        com.hippo.unifile.UniFile translated = dir.findFile("translated");
+                        if (translated != null && translated.exists()) {
+                            String page = String.format(java.util.Locale.US, "%08d", mCurrentIndex + 1);
+                            com.hippo.unifile.UniFile[] files = translated.listFiles();
+                            if (files != null) {
+                                for (com.hippo.unifile.UniFile f : files) {
+                                    String n = f.getName();
+                                    if (n != null && n.contains(page)) { translatedAvail = true; break; }
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+            // follow auto panel visibility
+            int autoVis = mAutoTransferPanel != null ? mAutoTransferPanel.getVisibility() : View.INVISIBLE;
+            mTranslateToggle.setVisibility(translatedAvail && autoVis == View.VISIBLE ? View.VISIBLE : View.INVISIBLE);
+        }
     }
 
     @Override
@@ -1068,7 +1142,7 @@ public class GalleryActivity extends EhActivity implements SeekBar.OnSeekBarChan
         builder.setTitle(resources.getString(R.string.page_menu_title, page + 1));
 
         final CharSequence[] items;
-        items = new CharSequence[]{getString(R.string.page_menu_refresh), getString(R.string.page_menu_share), getString(R.string.page_menu_save), getString(R.string.page_menu_save_to)};
+        items = new CharSequence[]{getString(R.string.page_menu_refresh), getString(R.string.page_menu_share), getString(R.string.page_menu_save), getString(R.string.page_menu_save_to), getString(R.string.page_menu_translate_this_page), getString(R.string.page_menu_toggle_translation), getString(R.string.page_menu_force_translate_gallery), getString(R.string.page_menu_llm_translate_this_page)};
         pageDialogListener(builder, items, page);
         builder.show();
     }
@@ -1093,8 +1167,1206 @@ public class GalleryActivity extends EhActivity implements SeekBar.OnSeekBarChan
                 case 3: // Save to
                     saveImageTo(page);
                     break;
+                case 4:
+                    translatePageAsyncForce(page);
+                    break;
+                case 5:
+                    boolean cur = Settings.getBoolean("read_translated_version", false);
+                    Settings.putBoolean("read_translated_version", !cur);
+                    mGalleryProvider.removeCache(page);
+                    mGalleryProvider.forceRequest(page);
+                    break;
+                case 6:
+                    try {
+                        DownloadManager dm = EhApplication.getDownloadManager(GalleryActivity.this);
+                        DownloadInfo info = dm.getDownloadInfo(mGalleryInfo.gid);
+                        if (info == null) info = new DownloadInfo(mGalleryInfo);
+                        boolean queued = TranslationQueueManager.getInstance().enqueueForce(info);
+                        Toast.makeText(GalleryActivity.this, getString(R.string.added_to_translation_queue), Toast.LENGTH_SHORT).show();
+                    } catch (Exception ignored) {}
+                    break;
+                case 7: {
+                    EditTextDialogBuilder promptBuilder = new EditTextDialogBuilder(GalleryActivity.this,
+                            GeminiApi.getCommonPrompt(), getString(R.string.gemini_common_prompt));
+                    promptBuilder.setTitle(R.string.gemini_common_prompt);
+                    promptBuilder.setPositiveButton(android.R.string.ok, null);
+                    promptBuilder.setNeutralButton("mask制作", null);
+                    AlertDialog promptDialog = promptBuilder.show();
+                    Button button = promptDialog.getButton(DialogInterface.BUTTON_POSITIVE);
+                    if (button != null) {
+                        button.setOnClickListener(v -> {
+                            String prompt = promptBuilder.getText();
+                            if (TextUtils.isEmpty(prompt)) {
+                                promptBuilder.setError(getString(R.string.text_is_empty));
+                            } else {
+                                promptBuilder.setError(null);
+                                promptDialog.dismiss();
+                                llmTranslatePageAsync(page, prompt);
+                            }
+                        });
+                    }
+                    Button neutral = promptDialog.getButton(DialogInterface.BUTTON_NEUTRAL);
+                    if (neutral != null) {
+                        neutral.setOnClickListener(v -> {
+                            showMaskEditor(page);
+                        });
+                    }
+                    break;
+                }
+                }
+            });
+    }
+
+    private void translatePageAsync(final int page) {
+        new Thread(() -> {
+            try {
+                if (mGalleryInfo == null) return;
+                DownloadManager dm = EhApplication.getDownloadManager(GalleryActivity.this);
+                DownloadInfo info = dm.getDownloadInfo(mGalleryInfo.gid);
+                if (info == null) {
+                    info = new DownloadInfo(mGalleryInfo);
+                }
+                File tempBase = AppConfig.getExternalTempDir();
+                if (tempBase == null) tempBase = AppConfig.getTempDir();
+                UniFile tempDir = UniFile.fromFile(new File(tempBase, "TranslateTemp"));
+                tempDir.ensureDir();
+                String pageNum = String.format(Locale.US, "%08d", page + 1);
+                String filename = "page_" + pageNum + ".png";
+                UniFile saved = null;
+                try {
+                    saved = mGalleryProvider != null ? mGalleryProvider.save(page, tempDir, filename) : null;
+                } catch (Exception ignored) {}
+                String sourcePath = null;
+                if (saved != null) {
+                    Uri u = saved.getUri();
+                    if (UniFile.isFileUri(u)) {
+                        sourcePath = new File(u.getPath()).getAbsolutePath();
+                    } else {
+                        try {
+                            File tmp = new File(new File(tempBase, "TranslateTemp"), "submit_" + mGalleryInfo.gid + "_" + (page+1) + ".img");
+                            InputStream is = saved.openInputStream();
+                            FileOutputStream fos = new FileOutputStream(tmp);
+                            try {
+                                byte[] buf = new byte[8192];
+                                int r;
+                                while ((r = is.read(buf)) != -1) fos.write(buf, 0, r);
+                                fos.flush();
+                            } finally {
+                                try { is.close(); } catch (Exception ignored) {}
+                                try { fos.close(); } catch (Exception ignored) {}
+                            }
+                            sourcePath = tmp.getAbsolutePath();
+                        } catch (Exception ignored) {}
+                    }
+                }
+                boolean queued = TranslationQueueManager.getInstance().enqueueSinglePageWithPath(info, page, sourcePath);
+                runOnUiThread(() -> {
+                    Toast.makeText(GalleryActivity.this,
+                            getString(queued ? R.string.added_to_translation_queue : R.string.already_in_translation_queue),
+                            Toast.LENGTH_SHORT).show();
+                    startTranslateIndicator();
+                });
+                watchTranslatedFile(page);
+            } catch (Exception ignored) {}
+        }).start();
+    }
+
+    private void translatePageAsyncForce(final int page) {
+        new Thread(() -> {
+            try {
+                if (mGalleryInfo == null) return;
+                DownloadManager dm = EhApplication.getDownloadManager(GalleryActivity.this);
+                DownloadInfo info = dm.getDownloadInfo(mGalleryInfo.gid);
+                if (info == null) {
+                    info = new DownloadInfo(mGalleryInfo);
+                }
+                File tempBase = AppConfig.getExternalTempDir();
+                if (tempBase == null) tempBase = AppConfig.getTempDir();
+                UniFile tempDir = UniFile.fromFile(new File(tempBase, "TranslateTemp"));
+                tempDir.ensureDir();
+                String sourcePath = null;
+                // Prefer original file name in download dir
+                try {
+                    UniFile dlDir = SpiderDen.getGalleryDownloadDir(mGalleryInfo);
+                    if (dlDir != null && dlDir.exists()) {
+                        String pageNum = String.format(Locale.US, "%08d", page + 1);
+                        UniFile[] files = dlDir.listFiles();
+                        if (files != null) {
+                            for (UniFile f : files) {
+                                String n = f.getName();
+                                if (n == null) continue;
+                                if ("translated".equals(n)) continue;
+                                if (f.isDirectory()) continue;
+                                if (n.contains(pageNum)) {
+                                    Uri u = f.getUri();
+                                    if (UniFile.isFileUri(u)) {
+                                        sourcePath = new File(u.getPath()).getAbsolutePath();
+                                    } else {
+                                        // Copy to temp with original file name
+                                        File tmp = new File(tempDir.getUri().getPath(), n);
+                                        InputStream is = f.openInputStream();
+                                        FileOutputStream fos = new FileOutputStream(tmp);
+                                        try {
+                                            byte[] buf = new byte[8192];
+                                            int r;
+                                            while ((r = is.read(buf)) != -1) fos.write(buf, 0, r);
+                                            fos.flush();
+                                        } finally {
+                                            try { is.close(); } catch (Exception ignored) {}
+                                            try { fos.close(); } catch (Exception ignored) {}
+                                        }
+                                        sourcePath = tmp.getAbsolutePath();
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception ignored) {}
+                // If not found, fallback to provider save using its own naming
+                if (sourcePath == null) {
+                    UniFile saved = null;
+                    try {
+                        String fname = (mGalleryProvider instanceof EhGalleryProvider)
+                                ? ((EhGalleryProvider) mGalleryProvider).getImageFilename(page)
+                                : String.format(Locale.US, "%08d", page + 1);
+                        saved = mGalleryProvider != null ? mGalleryProvider.save(page, tempDir, fname) : null;
+                    } catch (Exception ignored) {}
+                    if (saved != null) {
+                        Uri u = saved.getUri();
+                        if (UniFile.isFileUri(u)) {
+                            sourcePath = new File(u.getPath()).getAbsolutePath();
+                        } else {
+                            try {
+                                String n = saved.getName();
+                                File tmp = new File(tempDir.getUri().getPath(), n);
+                                InputStream is = saved.openInputStream();
+                                FileOutputStream fos = new FileOutputStream(tmp);
+                                try {
+                                    byte[] buf = new byte[8192];
+                                    int r;
+                                    while ((r = is.read(buf)) != -1) fos.write(buf, 0, r);
+                                    fos.flush();
+                                } finally {
+                                    try { is.close(); } catch (Exception ignored) {}
+                                    try { fos.close(); } catch (Exception ignored) {}
+                                }
+                                sourcePath = tmp.getAbsolutePath();
+                            } catch (Exception ignored) {}
+                        }
+                    }
+                }
+                TranslationQueueManager.getInstance().enqueueSinglePageForce(info, page, sourcePath);
+                runOnUiThread(() -> {
+                    Toast.makeText(GalleryActivity.this, getString(R.string.added_to_translation_queue), Toast.LENGTH_SHORT).show();
+                    startTranslateIndicator();
+                });
+                watchTranslatedFile(page);
+            } catch (Exception ignored) {}
+        }).start();
+    }
+
+    private void llmTranslatePageAsync(final int page) {
+        new Thread(() -> {
+            try {
+                if (mGalleryInfo == null) return;
+                File tempBase = AppConfig.getExternalTempDir();
+                if (tempBase == null) tempBase = AppConfig.getTempDir();
+                UniFile tempDir = UniFile.fromFile(new File(tempBase, "TranslateTemp"));
+                tempDir.ensureDir();
+                String sourcePath = null;
+                try {
+                    UniFile dlDir = SpiderDen.getGalleryDownloadDir(mGalleryInfo);
+                    if (dlDir != null && dlDir.exists()) {
+                        String pageNum = String.format(Locale.US, "%08d", page + 1);
+                        UniFile[] files = dlDir.listFiles();
+                        if (files != null) {
+                            for (UniFile f : files) {
+                                String n = f.getName();
+                                if (n == null) continue;
+                                if ("translated".equals(n)) continue;
+                                if (f.isDirectory()) continue;
+                                if (n.contains(pageNum)) {
+                                    Uri u = f.getUri();
+                                    if (UniFile.isFileUri(u)) {
+                                        sourcePath = new File(u.getPath()).getAbsolutePath();
+                                    } else {
+                                        File tmp = new File(tempDir.getUri().getPath(), n);
+                                        InputStream is = f.openInputStream();
+                                        FileOutputStream fos = new FileOutputStream(tmp);
+                                        try {
+                                            byte[] buf = new byte[8192];
+                                            int r;
+                                            while ((r = is.read(buf)) != -1) fos.write(buf, 0, r);
+                                            fos.flush();
+                                        } finally {
+                                            try { is.close(); } catch (Exception ignored) {}
+                                            try { fos.close(); } catch (Exception ignored) {}
+                                        }
+                                        sourcePath = tmp.getAbsolutePath();
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception ignored) {}
+                if (sourcePath == null) {
+                    UniFile saved = null;
+                    try {
+                        String fname = (mGalleryProvider instanceof EhGalleryProvider)
+                                ? ((EhGalleryProvider) mGalleryProvider).getImageFilename(page)
+                                : String.format(Locale.US, "%08d", page + 1);
+                        saved = mGalleryProvider != null ? mGalleryProvider.save(page, tempDir, fname) : null;
+                    } catch (Exception ignored) {}
+                    if (saved != null) {
+                        Uri u = saved.getUri();
+                        if (UniFile.isFileUri(u)) {
+                            sourcePath = new File(u.getPath()).getAbsolutePath();
+                        } else {
+                            try {
+                                String n = saved.getName();
+                                File tmp = new File(tempDir.getUri().getPath(), n);
+                                InputStream is = saved.openInputStream();
+                                FileOutputStream fos = new FileOutputStream(tmp);
+                                try {
+                                    byte[] buf = new byte[8192];
+                                    int r;
+                                    while ((r = is.read(buf)) != -1) fos.write(buf, 0, r);
+                                    fos.flush();
+                                } finally {
+                                    try { is.close(); } catch (Exception ignored) {}
+                                    try { fos.close(); } catch (Exception ignored) {}
+                                }
+                                sourcePath = tmp.getAbsolutePath();
+                            } catch (Exception ignored) {}
+                        }
+                    }
+                }
+                if (sourcePath == null) {
+                    Log.e("GalleryActivity", "LLM translate: source not found for page=" + (page+1));
+                    runOnUiThread(() -> Toast.makeText(GalleryActivity.this, "Failed", Toast.LENGTH_SHORT).show());
+                    return;
+                }
+                File src = new File(sourcePath);
+                String targetName = src.getName();
+                Log.d("GalleryActivity", "LLM translate: start, page=" + (page+1) + ", src=" + sourcePath + ", name=" + targetName);
+                runOnUiThread(this::startTranslateIndicator);
+                String prompt = GeminiApi.getCommonPrompt();
+                java.util.ArrayList<RectF> regions = mLlmMaskRegions.get(page);
+                File maskedSrc = null;
+                if (regions != null && !regions.isEmpty()) {
+                    maskedSrc = createMaskedSourceFile(src, regions, tempDir);
+                    Log.d("GalleryActivity", "LLM translate: using masked input=" + (maskedSrc != null ? maskedSrc.getAbsolutePath() : "null"));
+                }
+                GeminiApi.generateImageAsync(prompt, maskedSrc != null ? maskedSrc : src, (png, err) -> {
+                    if (png != null && err == null) {
+                        try {
+                            UniFile dir = SpiderDen.getGalleryDownloadDir(mGalleryInfo);
+                            if (dir == null) {
+                                Log.e("GalleryActivity", "LLM translate: download dir missing");
+                                runOnUiThread(() -> { stopTranslateIndicator(); Toast.makeText(GalleryActivity.this, "Failed", Toast.LENGTH_SHORT).show(); });
+                                return;
+                            }
+                            if (!dir.exists()) dir.ensureDir();
+                            UniFile translatedDir = dir.findFile("translated");
+                            if (translatedDir == null || !translatedDir.exists()) {
+                                translatedDir = dir.createDirectory("translated");
+                            }
+                            String outName = targetName != null ? targetName : String.format(Locale.US, "%08d", page + 1) + ".png";
+                            UniFile out = translatedDir.findFile(outName);
+                            if (out == null || !out.exists()) out = translatedDir.createFile(outName);
+                            // use existing regions variable declared earlier in method
+                            if (regions != null && !regions.isEmpty()) {
+                                try {
+                                    Bitmap orig = BitmapFactory.decodeFile(src.getAbsolutePath());
+                                    Bitmap trans = BitmapFactory.decodeByteArray(png, 0, png.length);
+                                    if (orig != null && trans != null) {
+                                        if (trans.getWidth() != orig.getWidth() || trans.getHeight() != orig.getHeight()) {
+                                            trans = Bitmap.createScaledBitmap(trans, orig.getWidth(), orig.getHeight(), true);
+                                        }
+                                        Bitmap result = Bitmap.createBitmap(orig.getWidth(), orig.getHeight(), Bitmap.Config.ARGB_8888);
+                                        Canvas canvas = new Canvas(result);
+                                        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                                        paint.setFilterBitmap(false);
+                                        paint.setDither(false);
+                                        canvas.drawBitmap(orig, 0f, 0f, paint);
+                                        Paint paintTrans = new Paint(Paint.ANTI_ALIAS_FLAG);
+                                        paintTrans.setFilterBitmap(false);
+                                        paintTrans.setDither(false);
+                                        for (RectF mask : regions) {
+                                            int inset = 5;
+                                            Rect innerSrcRect = new Rect((int) mask.left + inset, (int) mask.top + inset, (int) mask.right - inset, (int) mask.bottom - inset);
+                                            Rect innerDstRect = new Rect((int) mask.left + inset, (int) mask.top + inset, (int) mask.right - inset, (int) mask.bottom - inset);
+                                            if (innerSrcRect.width() <= 0 || innerSrcRect.height() <= 0) continue;
+                                            Bitmap part = safeCrop(trans, innerSrcRect);
+                                            if (part != null) {
+                                                Bitmap cleared = makeBlackTransparent(part, 8);
+                                                canvas.drawBitmap(cleared, null, innerDstRect, paintTrans);
+                                            }
+                                        }
+                                        OutputStream os = out.openOutputStream();
+                                        try {
+                                            result.compress(Bitmap.CompressFormat.PNG, 100, os);
+                                            os.flush();
+                                        } finally {
+                                            try { os.close(); } catch (Exception ignored) {}
+                                        }
+                                    } else {
+                                        OutputStream os = out.openOutputStream();
+                                        try {
+                                            os.write(png);
+                                            os.flush();
+                                        } finally {
+                                            try { os.close(); } catch (Exception ignored) {}
+                                        }
+                                    }
+                                } catch (Exception ex) {
+                                    OutputStream os = out.openOutputStream();
+                                    try {
+                                        os.write(png);
+                                        os.flush();
+                                    } finally {
+                                        try { os.close(); } catch (Exception ignored) {}
+                                    }
+                                }
+                            } else {
+                                OutputStream os = out.openOutputStream();
+                                try {
+                                    os.write(png);
+                                    os.flush();
+                                } finally {
+                                    try { os.close(); } catch (Exception ignored) {}
+                                }
+                            }
+                            Log.d("GalleryActivity", "LLM translate: wrote translated file=" + outName + ", size=" + png.length);
+                            runOnUiThread(() -> {
+                                stopTranslateIndicator();
+                                if (mGalleryProvider != null) {
+                                    mGalleryProvider.removeCache(page);
+                                    if (mGalleryProvider instanceof EhGalleryProvider) {
+                                        ((EhGalleryProvider) mGalleryProvider).forceLoadTranslated(page);
+                                    } else {
+                                        mGalleryProvider.forceRequest(page);
+                                    }
+                                }
+                                Toast.makeText(GalleryActivity.this, "OK", Toast.LENGTH_SHORT).show();
+                                Log.d("GalleryActivity", "LLM translate: refreshed page=" + (page+1));
+                            });
+                        } catch (Exception ex) {
+                            Log.e("GalleryActivity", "LLM translate: write failed page=" + (page+1) + ", ex=" + ex);
+                            runOnUiThread(() -> { stopTranslateIndicator(); Toast.makeText(GalleryActivity.this, "Failed", Toast.LENGTH_SHORT).show(); });
+                        }
+                    } else {
+                        Log.e("GalleryActivity", "LLM translate: API error page=" + (page+1) + ", err=" + err);
+                        runOnUiThread(() -> { stopTranslateIndicator(); Toast.makeText(GalleryActivity.this, "Failed", Toast.LENGTH_SHORT).show(); });
+                    }
+                });
+            } catch (Exception ignored) {}
+        }).start();
+    }
+
+    private void llmTranslatePageAsync(final int page, final String prompt) {
+        new Thread(() -> {
+            try {
+                if (mGalleryInfo == null) return;
+                File tempBase = AppConfig.getExternalTempDir();
+                if (tempBase == null) tempBase = AppConfig.getTempDir();
+                UniFile tempDir = UniFile.fromFile(new File(tempBase, "TranslateTemp"));
+                tempDir.ensureDir();
+                String sourcePath = null;
+                try {
+                    UniFile dlDir = SpiderDen.getGalleryDownloadDir(mGalleryInfo);
+                    if (dlDir != null && dlDir.exists()) {
+                        String pageNum = String.format(Locale.US, "%08d", page + 1);
+                        UniFile[] files = dlDir.listFiles();
+                        if (files != null) {
+                            for (UniFile f : files) {
+                                String n = f.getName();
+                                if (n == null) continue;
+                                if ("translated".equals(n)) continue;
+                                if (f.isDirectory()) continue;
+                                if (n.contains(pageNum)) {
+                                    Uri u = f.getUri();
+                                    if (UniFile.isFileUri(u)) {
+                                        sourcePath = new File(u.getPath()).getAbsolutePath();
+                                    } else {
+                                        File tmp = new File(tempDir.getUri().getPath(), n);
+                                        InputStream is = f.openInputStream();
+                                        FileOutputStream fos = new FileOutputStream(tmp);
+                                        try {
+                                            byte[] buf = new byte[8192];
+                                            int r;
+                                            while ((r = is.read(buf)) != -1) fos.write(buf, 0, r);
+                                            fos.flush();
+                                        } finally {
+                                            try { is.close(); } catch (Exception ignored) {}
+                                            try { fos.close(); } catch (Exception ignored) {}
+                                        }
+                                        sourcePath = tmp.getAbsolutePath();
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception ignored) {}
+                if (sourcePath == null) {
+                    UniFile saved = null;
+                    try {
+                        String fname = (mGalleryProvider instanceof EhGalleryProvider)
+                                ? ((EhGalleryProvider) mGalleryProvider).getImageFilename(page)
+                                : String.format(Locale.US, "%08d", page + 1);
+                        saved = mGalleryProvider != null ? mGalleryProvider.save(page, tempDir, fname) : null;
+                    } catch (Exception ignored) {}
+                    if (saved != null) {
+                        Uri u = saved.getUri();
+                        if (UniFile.isFileUri(u)) {
+                            sourcePath = new File(u.getPath()).getAbsolutePath();
+                        } else {
+                            try {
+                                String n = saved.getName();
+                                File tmp = new File(tempDir.getUri().getPath(), n);
+                                InputStream is = saved.openInputStream();
+                                FileOutputStream fos = new FileOutputStream(tmp);
+                                try {
+                                    byte[] buf = new byte[8192];
+                                    int r;
+                                    while ((r = is.read(buf)) != -1) fos.write(buf, 0, r);
+                                    fos.flush();
+                                } finally {
+                                    try { is.close(); } catch (Exception ignored) {}
+                                    try { fos.close(); } catch (Exception ignored) {}
+                                }
+                                sourcePath = tmp.getAbsolutePath();
+                            } catch (Exception ignored) {}
+                        }
+                    }
+                }
+                if (sourcePath == null) {
+                    Log.e("GalleryActivity", "LLM translate: source not found for page=" + (page+1));
+                    runOnUiThread(() -> Toast.makeText(GalleryActivity.this, "Failed", Toast.LENGTH_SHORT).show());
+                    return;
+                }
+                File src = new File(sourcePath);
+                String targetName = src.getName();
+                Log.d("GalleryActivity", "LLM translate: start, page=" + (page+1) + ", src=" + sourcePath + ", name=" + targetName);
+                runOnUiThread(this::startTranslateIndicator);
+                java.util.ArrayList<RectF> regions = mLlmMaskRegions.get(page);
+                File maskedSrc = null;
+                if (regions != null && !regions.isEmpty()) {
+                    maskedSrc = createMaskedSourceFile(src, regions, tempDir);
+                }
+                GeminiApi.generateImageAsync(prompt, maskedSrc != null ? maskedSrc : src, (png, err) -> {
+                    if (png != null && err == null) {
+                        try {
+                            UniFile dir = SpiderDen.getGalleryDownloadDir(mGalleryInfo);
+                            if (dir == null) {
+                                Log.e("GalleryActivity", "LLM translate: download dir missing");
+                                runOnUiThread(() -> { stopTranslateIndicator(); Toast.makeText(GalleryActivity.this, "Failed", Toast.LENGTH_SHORT).show(); });
+                                return;
+                            }
+                            if (!dir.exists()) dir.ensureDir();
+                            UniFile translatedDir = dir.findFile("translated");
+                            if (translatedDir == null || !translatedDir.exists()) {
+                                translatedDir = dir.createDirectory("translated");
+                            }
+                            String outName = targetName != null ? targetName : String.format(Locale.US, "%08d", page + 1) + ".png";
+                            UniFile out = translatedDir.findFile(outName);
+                            if (out == null || !out.exists()) out = translatedDir.createFile(outName);
+                            // use existing regions variable declared earlier in method
+                            if (regions != null && !regions.isEmpty()) {
+                                try {
+                                    Bitmap orig = BitmapFactory.decodeFile(src.getAbsolutePath());
+                                    Bitmap trans = BitmapFactory.decodeByteArray(png, 0, png.length);
+                                    if (orig != null && trans != null) {
+                                        if (trans.getWidth() != orig.getWidth() || trans.getHeight() != orig.getHeight()) {
+                                            trans = Bitmap.createScaledBitmap(trans, orig.getWidth(), orig.getHeight(), true);
+                                        }
+                                        Bitmap result = Bitmap.createBitmap(orig.getWidth(), orig.getHeight(), Bitmap.Config.ARGB_8888);
+                                        Canvas canvas = new Canvas(result);
+                                        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                                        paint.setFilterBitmap(false);
+                                        paint.setDither(false);
+                                        canvas.drawBitmap(orig, 0f, 0f, paint);
+                                        Paint paintTrans = new Paint(Paint.ANTI_ALIAS_FLAG);
+                                        paintTrans.setFilterBitmap(false);
+                                        paintTrans.setDither(false);
+                                        for (RectF mask : regions) {
+                                            int inset = 5;
+                                            Rect innerSrcRect = new Rect((int) mask.left + inset, (int) mask.top + inset, (int) mask.right - inset, (int) mask.bottom - inset);
+                                            Rect innerDstRect = new Rect((int) mask.left + inset, (int) mask.top + inset, (int) mask.right - inset, (int) mask.bottom - inset);
+                                            if (innerSrcRect.width() <= 0 || innerSrcRect.height() <= 0) continue;
+                                            Bitmap part = safeCrop(trans, innerSrcRect);
+                                            if (part != null) {
+                                                Bitmap cleared = makeBlackTransparent(part, 8);
+                                                canvas.drawBitmap(cleared, null, innerDstRect, paintTrans);
+                                            }
+                                        }
+                                        OutputStream os = out.openOutputStream();
+                                        try {
+                                            result.compress(Bitmap.CompressFormat.PNG, 100, os);
+                                            os.flush();
+                                        } finally {
+                                            try { os.close(); } catch (Exception ignored) {}
+                                        }
+                                    } else {
+                                        OutputStream os = out.openOutputStream();
+                                        try {
+                                            os.write(png);
+                                            os.flush();
+                                        } finally {
+                                            try { os.close(); } catch (Exception ignored) {}
+                                        }
+                                    }
+                                } catch (Exception ex) {
+                                    OutputStream os = out.openOutputStream();
+                                    try {
+                                        os.write(png);
+                                        os.flush();
+                                    } finally {
+                                        try { os.close(); } catch (Exception ignored) {}
+                                    }
+                                }
+                            } else {
+                                OutputStream os = out.openOutputStream();
+                                try {
+                                    os.write(png);
+                                    os.flush();
+                                } finally {
+                                    try { os.close(); } catch (Exception ignored) {}
+                                }
+                            }
+                            Log.d("GalleryActivity", "LLM translate: wrote translated file=" + outName + ", size=" + png.length);
+                            runOnUiThread(() -> {
+                                stopTranslateIndicator();
+                                if (mGalleryProvider != null) {
+                                    mGalleryProvider.removeCache(page);
+                                    if (mGalleryProvider instanceof EhGalleryProvider) {
+                                        ((EhGalleryProvider) mGalleryProvider).forceLoadTranslated(page);
+                                    } else {
+                                        mGalleryProvider.forceRequest(page);
+                                    }
+                                }
+                                Toast.makeText(GalleryActivity.this, "OK", Toast.LENGTH_SHORT).show();
+                                Log.d("GalleryActivity", "LLM translate: refreshed page=" + (page+1));
+                            });
+                        } catch (Exception ex) {
+                            Log.e("GalleryActivity", "LLM translate: write failed page=" + (page+1) + ", ex=" + ex);
+                            runOnUiThread(() -> { stopTranslateIndicator(); Toast.makeText(GalleryActivity.this, "Failed", Toast.LENGTH_SHORT).show(); });
+                        }
+                    } else {
+                        Log.e("GalleryActivity", "LLM translate: API error page=" + (page+1) + ", err=" + err);
+                        runOnUiThread(() -> { stopTranslateIndicator(); Toast.makeText(GalleryActivity.this, "Failed", Toast.LENGTH_SHORT).show(); });
+                    }
+                });
+            } catch (Exception ignored) {}
+        }).start();
+    }
+
+    private void startTranslateIndicator() {
+        if (mTranslateToggle == null) return;
+        SimpleHandler.getInstance().removeCallbacks(mHideSliderRunnable);
+        mTranslateToggle.setVisibility(View.VISIBLE);
+        if (mSeekBarPanel != null) {
+            showSlider(mSeekBarPanel, mSeekBarPanelAnimator);
+        }
+        if (mAutoTransferPanel != null) {
+            showSlider(mAutoTransferPanel, mAutoTransferAnimator);
+        }
+        if (mTranslateAnimator != null) {
+            try { mTranslateAnimator.cancel(); } catch (Exception ignored) {}
+        }
+        mTranslateAnimator = ObjectAnimator.ofFloat(mTranslateToggle, View.ROTATION, 0f, 360f);
+        mTranslateAnimator.setDuration(800);
+        mTranslateAnimator.setRepeatCount(ObjectAnimator.INFINITE);
+        mTranslateAnimator.start();
+    }
+
+    private void stopTranslateIndicator() {
+        if (mTranslateAnimator != null) {
+            try { mTranslateAnimator.cancel(); } catch (Exception ignored) {}
+            mTranslateAnimator = null;
+        }
+        if (mTranslateToggle != null) {
+            mTranslateToggle.setRotation(0f);
+        }
+    }
+
+    private void watchTranslatedFile(final int page) {
+        new Thread(() -> {
+            try {
+                if (mGalleryInfo == null) return;
+                UniFile dir = SpiderDen.getGalleryDownloadDir(mGalleryInfo);
+                if (dir == null || !dir.exists()) return;
+                String pageNum = String.format(Locale.US, "%08d", page + 1);
+                for (int i = 0; i < 900; i++) {
+                    UniFile translated = dir.findFile("translated");
+                    if (translated != null && translated.exists()) {
+                        UniFile[] files = translated.listFiles();
+                        if (files != null) {
+                            for (UniFile f : files) {
+                                String n = f.getName();
+                                if (n != null && n.contains(pageNum)) {
+                                    runOnUiThread(() -> {
+                                        stopTranslateIndicator();
+                                        if (mGalleryProvider != null) {
+                                            mGalleryProvider.removeCache(page);
+                                            if (mGalleryProvider instanceof EhGalleryProvider) {
+                                                ((EhGalleryProvider) mGalleryProvider).forceLoadTranslated(page);
+                                            } else {
+                                                mGalleryProvider.forceRequest(page);
+                                            }
+                                        }
+                                        SimpleHandler.getInstance().postDelayed(mHideSliderRunnable, HIDE_SLIDER_DELAY);
+                                    });
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                    try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
+                }
+            } catch (Exception ignored) {}
+        }).start();
+    }
+
+    private void showMaskEditor(final int page) {
+        try {
+            if (mGalleryInfo == null) return;
+            File tempBase = AppConfig.getExternalTempDir();
+            if (tempBase == null) tempBase = AppConfig.getTempDir();
+            UniFile tempDir = UniFile.fromFile(new File(tempBase, "TranslateTemp"));
+            tempDir.ensureDir();
+            String sourcePath = null;
+            try {
+                UniFile dlDir = SpiderDen.getGalleryDownloadDir(mGalleryInfo);
+                if (dlDir != null && dlDir.exists()) {
+                    String pageNum = String.format(Locale.US, "%08d", page + 1);
+                    UniFile[] files = dlDir.listFiles();
+                    if (files != null) {
+                        for (UniFile f : files) {
+                            String n = f.getName();
+                            if (n == null) continue;
+                            if ("translated".equals(n)) continue;
+                            if (f.isDirectory()) continue;
+                            if (n.contains(pageNum)) {
+                                Uri u = f.getUri();
+                                if (UniFile.isFileUri(u)) {
+                                    sourcePath = new File(u.getPath()).getAbsolutePath();
+                                } else {
+                                    File tmp = new File(tempDir.getUri().getPath(), n);
+                                    InputStream is = f.openInputStream();
+                                    FileOutputStream fos = new FileOutputStream(tmp);
+                                    try {
+                                        byte[] buf = new byte[8192];
+                                        int r;
+                                        while ((r = is.read(buf)) != -1) fos.write(buf, 0, r);
+                                        fos.flush();
+                                    } finally {
+                                        try { is.close(); } catch (Exception ignored) {}
+                                        try { fos.close(); } catch (Exception ignored) {}
+                                    }
+                                    sourcePath = tmp.getAbsolutePath();
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+            if (sourcePath == null) {
+                UniFile saved = null;
+                try {
+                    String fname = (mGalleryProvider instanceof EhGalleryProvider)
+                            ? ((EhGalleryProvider) mGalleryProvider).getImageFilename(page)
+                            : String.format(Locale.US, "%08d", page + 1);
+                    saved = mGalleryProvider != null ? mGalleryProvider.save(page, tempDir, fname) : null;
+                } catch (Exception ignored) {}
+                if (saved != null) {
+                    Uri u = saved.getUri();
+                    if (UniFile.isFileUri(u)) {
+                        sourcePath = new File(u.getPath()).getAbsolutePath();
+                    } else {
+                        try {
+                            String n = saved.getName();
+                            File tmp = new File(tempDir.getUri().getPath(), n);
+                            InputStream is = saved.openInputStream();
+                            FileOutputStream fos = new FileOutputStream(tmp);
+                            try {
+                                byte[] buf = new byte[8192];
+                                int r;
+                                while ((r = is.read(buf)) != -1) fos.write(buf, 0, r);
+                                fos.flush();
+                            } finally {
+                                try { is.close(); } catch (Exception ignored) {}
+                                try { fos.close(); } catch (Exception ignored) {}
+                            }
+                            sourcePath = tmp.getAbsolutePath();
+                        } catch (Exception ignored) {}
+                    }
+                }
             }
-        });
+            if (sourcePath == null) {
+                Toast.makeText(GalleryActivity.this, "Failed", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            Bitmap bitmap = BitmapFactory.decodeFile(sourcePath);
+            if (bitmap == null) {
+                Toast.makeText(GalleryActivity.this, "Failed", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            final MaskSelectionView view = new MaskSelectionView(GalleryActivity.this, bitmap);
+            java.util.ArrayList<RectF> pre = mLlmMaskRegions.get(page);
+            if (pre != null) view.setInitialSelectionsImage(pre);
+            AlertDialog.Builder b = new AlertDialog.Builder(GalleryActivity.this);
+            b.setTitle("mask制作");
+            FrameLayout fl = new FrameLayout(GalleryActivity.this);
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+            int pad = (int) (getResources().getDisplayMetrics().density * 12);
+            fl.setPadding(pad, pad, pad, pad);
+            fl.addView(view, lp);
+            b.setView(fl);
+            b.setPositiveButton(android.R.string.ok, null);
+            b.setNegativeButton(android.R.string.cancel, null);
+            b.setNeutralButton("清除", null);
+            AlertDialog d = b.create();
+            d.setOnShowListener(di -> {
+                Button ok = d.getButton(DialogInterface.BUTTON_POSITIVE);
+                Button clear = d.getButton(DialogInterface.BUTTON_NEUTRAL);
+                if (ok != null) {
+                    ok.setOnClickListener(v -> {
+                        java.util.ArrayList<RectF> selImgs = view.getSelectionsImage();
+                        if (selImgs == null || selImgs.isEmpty()) {
+                            Toast.makeText(GalleryActivity.this, getString(R.string.text_is_empty), Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        mLlmMaskRegions.put(page, selImgs);
+                        d.dismiss();
+                        showMaskPreview(page);
+                    });
+                }
+                if (clear != null) {
+                    clear.setOnClickListener(v -> {
+                        mLlmMaskRegions.remove(page);
+                        view.clearSelections();
+                    });
+                }
+            });
+            d.show();
+        } catch (Exception ignored) {}
+    }
+
+    private void showMaskPreview(final int page) {
+        try {
+            File tempBase = AppConfig.getExternalTempDir();
+            if (tempBase == null) tempBase = AppConfig.getTempDir();
+            UniFile tempDir = UniFile.fromFile(new File(tempBase, "TranslateTemp"));
+            tempDir.ensureDir();
+            String sourcePath = null;
+            try {
+                UniFile dlDir = SpiderDen.getGalleryDownloadDir(mGalleryInfo);
+                if (dlDir != null && dlDir.exists()) {
+                    String pageNum = String.format(Locale.US, "%08d", page + 1);
+                    UniFile[] files = dlDir.listFiles();
+                    if (files != null) {
+                        for (UniFile f : files) {
+                            String n = f.getName();
+                            if (n == null) continue;
+                            if ("translated".equals(n)) continue;
+                            if (f.isDirectory()) continue;
+                            if (n.contains(pageNum)) {
+                                Uri u = f.getUri();
+                                if (UniFile.isFileUri(u)) {
+                                    sourcePath = new File(u.getPath()).getAbsolutePath();
+                                } else {
+                                    File tmp = new File(tempDir.getUri().getPath(), n);
+                                    InputStream is = f.openInputStream();
+                                    FileOutputStream fos = new FileOutputStream(tmp);
+                                    try {
+                                        byte[] buf = new byte[8192];
+                                        int r;
+                                        while ((r = is.read(buf)) != -1) fos.write(buf, 0, r);
+                                        fos.flush();
+                                    } finally {
+                                        try { is.close(); } catch (Exception ignored) {}
+                                        try { fos.close(); } catch (Exception ignored) {}
+                                    }
+                                    sourcePath = tmp.getAbsolutePath();
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+            if (sourcePath == null) return;
+            Bitmap srcBmp = BitmapFactory.decodeFile(sourcePath);
+            if (srcBmp == null) return;
+            java.util.ArrayList<RectF> regions = mLlmMaskRegions.get(page);
+            if (regions == null || regions.isEmpty()) return;
+            Bitmap preview = Bitmap.createBitmap(srcBmp.getWidth(), srcBmp.getHeight(), Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(preview);
+            Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            canvas.drawBitmap(srcBmp, 0f, 0f, paint);
+            android.graphics.Path overlayPath = new android.graphics.Path();
+            overlayPath.addRect(0f, 0f, srcBmp.getWidth(), srcBmp.getHeight(), android.graphics.Path.Direction.CW);
+            for (RectF r : regions) {
+                android.graphics.Path p = new android.graphics.Path();
+                p.addRect(r, android.graphics.Path.Direction.CW);
+                overlayPath.op(p, android.graphics.Path.Op.DIFFERENCE);
+            }
+            Paint overlay = new Paint(Paint.ANTI_ALIAS_FLAG);
+            overlay.setColor(Color.BLACK);
+            overlay.setAlpha(255);
+            canvas.drawPath(overlayPath, overlay);
+
+            ImageView iv = new ImageView(GalleryActivity.this);
+            iv.setAdjustViewBounds(true);
+            iv.setImageBitmap(preview);
+            AlertDialog.Builder b = new AlertDialog.Builder(GalleryActivity.this);
+            b.setTitle("mask预览");
+            b.setView(iv);
+            b.setPositiveButton(android.R.string.ok, null);
+            b.show();
+        } catch (Exception ignored) {}
+    }
+
+    private File createOpaqueMaskFile(File src, java.util.ArrayList<RectF> regions, UniFile tempDir) {
+        try {
+            Bitmap srcBmp = BitmapFactory.decodeFile(src.getAbsolutePath());
+            if (srcBmp == null) return null;
+            Bitmap mask = Bitmap.createBitmap(srcBmp.getWidth(), srcBmp.getHeight(), Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(mask);
+            Paint black = new Paint(Paint.ANTI_ALIAS_FLAG);
+            black.setColor(Color.BLACK);
+            black.setAlpha(255);
+            canvas.drawRect(0f, 0f, srcBmp.getWidth(), srcBmp.getHeight(), black);
+            Paint white = new Paint(Paint.ANTI_ALIAS_FLAG);
+            white.setColor(Color.WHITE);
+            white.setAlpha(255);
+            for (RectF r : regions) {
+                canvas.drawRect(r, white);
+            }
+            File out = new File(tempDir.getUri().getPath(), "mask_" + src.getName() + ".png");
+            OutputStream os = new java.io.FileOutputStream(out);
+            try {
+                mask.compress(Bitmap.CompressFormat.PNG, 100, os);
+                os.flush();
+            } finally {
+                try { os.close(); } catch (Exception ignored) {}
+            }
+            return out;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private File createMaskedSourceFile(File src, java.util.ArrayList<RectF> regions, UniFile tempDir) {
+        try {
+            Bitmap srcBmp = BitmapFactory.decodeFile(src.getAbsolutePath());
+            if (srcBmp == null) return null;
+            Bitmap masked = Bitmap.createBitmap(srcBmp.getWidth(), srcBmp.getHeight(), Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(masked);
+            Paint black = new Paint(Paint.ANTI_ALIAS_FLAG);
+            black.setColor(Color.BLACK);
+            black.setAlpha(255);
+            canvas.drawRect(0f, 0f, srcBmp.getWidth(), srcBmp.getHeight(), black);
+            Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            paint.setFilterBitmap(false);
+            paint.setDither(false);
+            for (RectF r : regions) {
+                Rect srcRect = new Rect((int) r.left, (int) r.top, (int) r.right, (int) r.bottom);
+                Rect dstRect = new Rect((int) r.left, (int) r.top, (int) r.right, (int) r.bottom);
+                canvas.drawBitmap(srcBmp, srcRect, dstRect, paint);
+            }
+            File out = new File(tempDir.getUri().getPath(), "masked_" + src.getName() + ".png");
+            OutputStream os = new java.io.FileOutputStream(out);
+            try {
+                masked.compress(Bitmap.CompressFormat.PNG, 100, os);
+                os.flush();
+            } finally {
+                try { os.close(); } catch (Exception ignored) {}
+            }
+            return out;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static Bitmap safeCrop(Bitmap bmp, Rect rect) {
+        if (bmp == null || rect == null) return null;
+        int l = Math.max(0, Math.min(rect.left, bmp.getWidth()));
+        int t = Math.max(0, Math.min(rect.top, bmp.getHeight()));
+        int r = Math.max(l, Math.min(rect.right, bmp.getWidth()));
+        int b = Math.max(t, Math.min(rect.bottom, bmp.getHeight()));
+        int w = r - l;
+        int h = b - t;
+        if (w <= 0 || h <= 0) return null;
+        try {
+            return Bitmap.createBitmap(bmp, l, t, w, h);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static Bitmap makeBlackTransparent(Bitmap bmp, int threshold) {
+        if (bmp == null) return null;
+        Bitmap out = bmp.getConfig() == Bitmap.Config.ARGB_8888 ? bmp.copy(Bitmap.Config.ARGB_8888, true) : bmp.copy(Bitmap.Config.ARGB_8888, true);
+        int w = out.getWidth();
+        int h = out.getHeight();
+        int[] px = new int[w * h];
+        out.getPixels(px, 0, w, 0, 0, w, h);
+        int thr = Math.max(0, Math.min(255, threshold));
+        for (int i = 0; i < px.length; i++) {
+            int c = px[i];
+            int a = (c >>> 24) & 0xff;
+            int r = (c >>> 16) & 0xff;
+            int g = (c >>> 8) & 0xff;
+            int b = c & 0xff;
+            if (r <= thr && g <= thr && b <= thr) {
+                px[i] = (0 << 24) | (c & 0x00ffffff);
+            } else {
+                px[i] = (a << 24) | (r << 16) | (g << 8) | b;
+            }
+        }
+        out.setPixels(px, 0, w, 0, 0, w, h);
+        return out;
+    }
+    private static class MaskSelectionView extends View {
+        private final Bitmap bitmap;
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final java.util.ArrayList<RectF> sels = new java.util.ArrayList<>();
+        private RectF imageRect = new RectF();
+        private RectF baseRect = new RectF();
+        private float downX;
+        private float downY;
+        private int mode = 0;
+        private int currentIndex = -1;
+        private float scale = 1f;
+        private static final float MIN_SCALE = 0.25f;
+        private static final float MAX_SCALE = 4f;
+        private static final int MODE_CREATE = 1;
+        private static final int MODE_MOVE = 2;
+        private static final int MODE_RESIZE_LT = 3;
+        private static final int MODE_RESIZE_RT = 4;
+        private static final int MODE_RESIZE_LB = 5;
+        private static final int MODE_RESIZE_RB = 6;
+        private static final float HANDLE = 12f;
+
+        public MaskSelectionView(Context ctx, Bitmap bmp) {
+            super(ctx);
+            this.bitmap = bmp;
+            paint.setFilterBitmap(true);
+        }
+
+        @Override
+        protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+            super.onSizeChanged(w, h, oldw, oldh);
+            float bw = bitmap.getWidth();
+            float bh = bitmap.getHeight();
+            float sw = w / bw;
+            float sh = h / bh;
+            float s = Math.min(sw, sh);
+            float dw = bw * s;
+            float dh = bh * s;
+            float l = (w - dw) / 2f;
+            float t = (h - dh) / 2f;
+            baseRect.set(l, t, l + dw, t + dh);
+            applyTransform();
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            Rect dst = new Rect((int) imageRect.left, (int) imageRect.top, (int) imageRect.right, (int) imageRect.bottom);
+            canvas.drawBitmap(bitmap, null, dst, paint);
+            android.graphics.Path overlayPath = new android.graphics.Path();
+            overlayPath.addRect(imageRect, android.graphics.Path.Direction.CW);
+            for (RectF r : sels) {
+                android.graphics.Path p = new android.graphics.Path();
+                p.addRect(r, android.graphics.Path.Direction.CW);
+                overlayPath.op(p, android.graphics.Path.Op.DIFFERENCE);
+            }
+            Paint overlay = new Paint(Paint.ANTI_ALIAS_FLAG);
+            overlay.setColor(Color.BLACK);
+            overlay.setAlpha(160);
+            canvas.drawPath(overlayPath, overlay);
+
+            int accent = ResourcesUtils.getAttrColor(getContext(), androidx.appcompat.R.attr.colorPrimary);
+            Paint border = new Paint(Paint.ANTI_ALIAS_FLAG);
+            border.setStyle(Paint.Style.STROKE);
+            border.setColor(accent);
+            border.setStrokeWidth(2f);
+            Paint handle = new Paint(Paint.ANTI_ALIAS_FLAG);
+            handle.setStyle(Paint.Style.FILL);
+            handle.setColor(accent);
+            for (RectF r : sels) {
+                canvas.drawRect(r, border);
+                RectF inner = new RectF(r.left + 5f, r.top + 5f, r.right - 5f, r.bottom - 5f);
+                if (inner.right > inner.left && inner.bottom > inner.top) {
+                    canvas.drawRect(inner, border);
+                }
+                canvas.drawRect(r.left - HANDLE, r.top - HANDLE, r.left + HANDLE, r.top + HANDLE, handle);
+                canvas.drawRect(r.right - HANDLE, r.top - HANDLE, r.right + HANDLE, r.top + HANDLE, handle);
+                canvas.drawRect(r.left - HANDLE, r.bottom - HANDLE, r.left + HANDLE, r.bottom + HANDLE, handle);
+                canvas.drawRect(r.right - HANDLE, r.bottom - HANDLE, r.right + HANDLE, r.bottom + HANDLE, handle);
+            }
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent event) {
+            float x = event.getX();
+            float y = event.getY();
+            switch (event.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    downX = x; downY = y;
+                    mode = pickMode(x, y);
+                    if (mode == 0 && imageRect.contains(x, y)) {
+                        RectF r = new RectF(x, y, x, y);
+                        sels.add(r);
+                        currentIndex = sels.size() - 1;
+                        mode = MODE_CREATE;
+                    }
+                    break;
+                case MotionEvent.ACTION_MOVE:
+                    if (currentIndex >= 0 && currentIndex < sels.size()) {
+                        RectF sel = sels.get(currentIndex);
+                        if (mode == MODE_CREATE) {
+                            sel.set(Math.min(downX, x), Math.min(downY, y), Math.max(downX, x), Math.max(downY, y));
+                            clampSel(sel);
+                            snapRect(sel);
+                            invalidate();
+                        } else if (mode == MODE_MOVE) {
+                            float dx = x - downX;
+                            float dy = y - downY;
+                            sel.offset(dx, dy);
+                            clampSel(sel);
+                            snapRect(sel);
+                            downX = x; downY = y;
+                            invalidate();
+                        } else {
+                            if (mode == MODE_RESIZE_LT) {
+                                sel.left = x; sel.top = y;
+                            } else if (mode == MODE_RESIZE_RT) {
+                                sel.right = x; sel.top = y;
+                            } else if (mode == MODE_RESIZE_LB) {
+                                sel.left = x; sel.bottom = y;
+                            } else if (mode == MODE_RESIZE_RB) {
+                                sel.right = x; sel.bottom = y;
+                            }
+                            clampSel(sel);
+                            snapRect(sel);
+                            invalidate();
+                        }
+                    }
+                    break;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    mode = 0;
+                    break;
+            }
+            return true;
+        }
+
+        private int pickMode(float x, float y) {
+            for (int i = sels.size() - 1; i >= 0; i--) {
+                RectF sel = sels.get(i);
+                RectF lt = new RectF(sel.left - HANDLE, sel.top - HANDLE, sel.left + HANDLE, sel.top + HANDLE);
+                RectF rt = new RectF(sel.right - HANDLE, sel.top - HANDLE, sel.right + HANDLE, sel.top + HANDLE);
+                RectF lb = new RectF(sel.left - HANDLE, sel.bottom - HANDLE, sel.left + HANDLE, sel.bottom + HANDLE);
+                RectF rb = new RectF(sel.right - HANDLE, sel.bottom - HANDLE, sel.right + HANDLE, sel.bottom + HANDLE);
+                if (lt.contains(x, y)) { currentIndex = i; return MODE_RESIZE_LT; }
+                if (rt.contains(x, y)) { currentIndex = i; return MODE_RESIZE_RT; }
+                if (lb.contains(x, y)) { currentIndex = i; return MODE_RESIZE_LB; }
+                if (rb.contains(x, y)) { currentIndex = i; return MODE_RESIZE_RB; }
+                if (sel.contains(x, y)) { currentIndex = i; return MODE_MOVE; }
+            }
+            currentIndex = -1;
+            return 0;
+        }
+
+        private void clampSel(RectF sel) {
+            if (sel.left < imageRect.left) sel.left = imageRect.left;
+            if (sel.top < imageRect.top) sel.top = imageRect.top;
+            if (sel.right > imageRect.right) sel.right = imageRect.right;
+            if (sel.bottom > imageRect.bottom) sel.bottom = imageRect.bottom;
+        }
+
+        public java.util.ArrayList<RectF> getSelectionsImage() {
+            java.util.ArrayList<RectF> list = new java.util.ArrayList<>();
+            float bw = bitmap.getWidth();
+            float bh = bitmap.getHeight();
+            float sx = bw / imageRect.width();
+            float sy = bh / imageRect.height();
+            for (RectF sel : sels) {
+                int l = Math.round((sel.left - imageRect.left) * sx);
+                int t = Math.round((sel.top - imageRect.top) * sy);
+                int r = Math.round((sel.right - imageRect.left) * sx);
+                int b = Math.round((sel.bottom - imageRect.top) * sy);
+                list.add(new RectF(l, t, r, b));
+            }
+            return list;
+        }
+
+        public void setInitialSelectionsImage(java.util.ArrayList<RectF> imgRects) {
+            float bw = bitmap.getWidth();
+            float bh = bitmap.getHeight();
+            float sx = imageRect.width() / bw;
+            float sy = imageRect.height() / bh;
+            sels.clear();
+            if (imgRects != null) {
+                for (RectF imgRect : imgRects) {
+                    float l = imageRect.left + imgRect.left * sx;
+                    float t = imageRect.top + imgRect.top * sy;
+                    float r = imageRect.left + imgRect.right * sx;
+                    float b = imageRect.top + imgRect.bottom * sy;
+                    RectF vf = new RectF(l, t, r, b);
+                    snapRect(vf);
+                    sels.add(vf);
+                }
+            }
+            invalidate();
+        }
+
+        public void clearSelections() {
+            sels.clear();
+            invalidate();
+        }
+
+        private void applyTransform() {
+            float cx = baseRect.centerX();
+            float cy = baseRect.centerY();
+            float w = baseRect.width() * scale;
+            float h = baseRect.height() * scale;
+            imageRect.set(cx - w / 2f, cy - h / 2f, cx + w / 2f, cy + h / 2f);
+        }
+
+        private void snapRect(RectF sel) {
+            sel.left = Math.round(sel.left);
+            sel.top = Math.round(sel.top);
+            sel.right = Math.round(sel.right);
+            sel.bottom = Math.round(sel.bottom);
+        }
+
+        @Override
+        public boolean onGenericMotionEvent(MotionEvent event) {
+            if ((event.getSource() & InputDevice.SOURCE_CLASS_POINTER) != 0 && event.getAction() == MotionEvent.ACTION_SCROLL) {
+                float v = event.getAxisValue(MotionEvent.AXIS_VSCROLL);
+                if (v != 0f) {
+                    float old = scale;
+                    scale *= (1f + (v > 0 ? -0.1f : 0.1f));
+                    if (scale < MIN_SCALE) scale = MIN_SCALE;
+                    if (scale > MAX_SCALE) scale = MAX_SCALE;
+                    if (Math.abs(scale - old) > 0.0001f) {
+                        applyTransform();
+                        invalidate();
+                        return true;
+                    }
+                }
+            }
+            return super.onGenericMotionEvent(event);
+        }
     }
 
     private class GalleryMenuHelper implements DialogInterface.OnClickListener {

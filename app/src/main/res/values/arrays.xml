@@ -344,6 +344,16 @@
         <item>zh-TW</item>
     </string-array>
 
+    <string-array name="gemini_model_entries">
+        <item>@string/gemini_model_default</item>
+        <item>@string/gemini_model_custom</item>
+    </string-array>
+
+    <string-array name="gemini_model_entry_values" translatable="false">
+        <item>default</item>
+        <item>custom</item>
+    </string-array>
+
     <string-array name="tag_translation_metadata" tools:ignore="InconsistentArrays">
 <!--        <item>tag-translations-zh-rCN.sha1</item>-->
 <!--        <item>https://github.com/Mapaler/EhViewer/tree/tag-translations/tag-translations/tag-translations-zh-rCN.sha1</item>-->
